@@ -1,0 +1,54 @@
+[tool.poetry]
+name = "engineering-command-center-backend"
+version = "0.1.0"
+description = "Engineering Command Center - Backend API"
+authors = ["Hike Engineering <keshav.upadhyaya@hikeapp.com>"]
+readme = "../README.md"
+packages = [{ include = "app" }]
+
+[tool.poetry.dependencies]
+python = "^3.12"
+fastapi = "^0.115.0"
+uvicorn = { version = "^0.32.0", extras = ["standard"] }
+pydantic = "^2.9.0"
+pydantic-settings = "^2.6.0"
+httpx = "^0.28.0"
+qdrant-client = "1.12.1"
+google-genai = ">=1.0.0"
+python-dotenv = "^1.0.0"
+structlog = "^24.4.0"
+tenacity = "^9.0.0"
+python-multipart = "^0.0.12"
+gitpython = "^3.1.43"
+aiofiles = "^24.1.0"
+python-jose = {extras = ["cryptography"], version = "^3.5.0"}
+itsdangerous = "^2.2.0"
+apscheduler = "^3.10.4"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.3.0"
+pytest-asyncio = "^0.24.0"
+pytest-cov = "^5.0.0"
+httpx = "^0.28.0"
+ruff = "^0.8.0"
+mypy = "^1.13.0"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
