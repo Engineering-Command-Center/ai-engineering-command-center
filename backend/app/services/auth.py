@@ -67,6 +67,7 @@ def create_jwt(settings: Settings, user: UserInfo) -> str:
         "sub": user.email,
         "name": user.name,
         "picture": user.picture,
+        "is_admin": user.is_admin,
         "exp": expire,
     }
     return jwt.encode(payload, settings.secret_key, algorithm=ALGORITHM)
@@ -79,6 +80,14 @@ def decode_jwt(settings: Settings, token: str) -> TokenData | None:
             sub=payload["sub"],
             name=payload.get("name", payload["sub"]),
             picture=payload.get("picture"),
+            is_admin=payload.get("is_admin", False),
         )
     except JWTError:
         return None
+
+
+def verify_admin_credentials(settings: Settings, email: str, password: str) -> UserInfo | None:
+    """Return admin UserInfo if credentials match config, else None."""
+    if email == settings.admin_email and password == settings.admin_password:
+        return UserInfo(email=email, name="Admin", picture=None, is_admin=True)
+    return None

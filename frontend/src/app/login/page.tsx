@@ -1,19 +1,50 @@
 "use client";
 
-import { Suspense } from "react";
+import { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { BrainCircuit } from "lucide-react";
+import { BrainCircuit, Lock } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 const ERROR_MESSAGES: Record<string, string> = {
   oauth_failed: "Google sign-in failed. Please try again.",
   domain_not_allowed: "Only @hikeapp.com email addresses are allowed.",
+  invalid_credentials: "Invalid admin credentials.",
 };
 
 function LoginContent() {
   const params = useSearchParams();
   const error = params.get("error");
+  const [showAdmin, setShowAdmin] = useState(false);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [adminError, setAdminError] = useState("");
+  const [loading, setLoading] = useState(false);
+  const qc = useQueryClient();
+
+  async function handleAdminLogin(e: React.FormEvent) {
+    e.preventDefault();
+    setLoading(true);
+    setAdminError("");
+    try {
+      const res = await fetch("/api/auth/admin-login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+      if (!res.ok) {
+        setAdminError("Invalid admin credentials.");
+        return;
+      }
+      await qc.invalidateQueries({ queryKey: ["auth", "me"] });
+      window.location.href = "/admin";
+    } catch {
+      setAdminError("Login failed. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  }
 
   return (
     <div className="min-h-screen bg-[var(--bg-primary)] flex items-center justify-center px-4">
@@ -24,31 +55,93 @@ function LoginContent() {
             <BrainCircuit className="h-7 w-7 text-white" />
           </div>
           <h1 className="text-2xl font-bold text-[var(--text-primary)]">Engineering Command Center</h1>
-          <p className="text-sm text-[var(--text-muted)] mt-1">Sign in with your Hike account</p>
+          <p className="text-sm text-[var(--text-muted)] mt-1">
+            {showAdmin ? "Admin sign in" : "Sign in with your Hike account"}
+          </p>
         </div>
 
-        {/* Error */}
+        {/* Error from OAuth redirect */}
         {error && (
           <div className="mb-4 px-4 py-3 rounded-xl bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-sm text-red-600 dark:text-red-400 text-center">
             {ERROR_MESSAGES[error] ?? "An error occurred. Please try again."}
           </div>
         )}
 
-        {/* Sign in button */}
-        <a
-          href={`${API_BASE}/api/v1/auth/login`}
-          className="flex items-center justify-center gap-3 w-full px-4 py-3 rounded-xl
-                     bg-white dark:bg-[var(--bg-secondary)] border border-[var(--border)]
-                     text-[var(--text-primary)] font-medium text-sm
-                     hover:bg-[var(--bg-hover)] transition-colors shadow-sm"
-        >
-          <GoogleIcon />
-          Continue with Google
-        </a>
-
-        <p className="text-center text-xs text-[var(--text-muted)] mt-6">
-          Access restricted to @hikeapp.com accounts
-        </p>
+        {!showAdmin ? (
+          <>
+            {/* Google sign in */}
+            <a
+              href={`${API_BASE}/api/v1/auth/login`}
+              className="flex items-center justify-center gap-3 w-full px-4 py-3 rounded-xl
+                         bg-white dark:bg-[var(--bg-secondary)] border border-[var(--border)]
+                         text-[var(--text-primary)] font-medium text-sm
+                         hover:bg-[var(--bg-hover)] transition-colors shadow-sm"
+            >
+              <GoogleIcon />
+              Continue with Google
+            </a>
+            <p className="text-center text-xs text-[var(--text-muted)] mt-6">
+              Access restricted to @hikeapp.com accounts
+            </p>
+            <div className="text-center mt-4">
+              <button
+                onClick={() => setShowAdmin(true)}
+                className="text-xs text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors"
+              >
+                Admin login
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            {/* Admin login form */}
+            <form onSubmit={handleAdminLogin} className="space-y-3">
+              {adminError && (
+                <div className="px-4 py-3 rounded-xl bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-sm text-red-600 dark:text-red-400 text-center">
+                  {adminError}
+                </div>
+              )}
+              <input
+                type="email"
+                placeholder="Admin email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+                className="w-full px-4 py-3 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border)]
+                           text-[var(--text-primary)] text-sm placeholder:text-[var(--text-muted)]
+                           focus:outline-none focus:ring-2 focus:ring-brand-500"
+              />
+              <input
+                type="password"
+                placeholder="Password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                className="w-full px-4 py-3 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border)]
+                           text-[var(--text-primary)] text-sm placeholder:text-[var(--text-muted)]
+                           focus:outline-none focus:ring-2 focus:ring-brand-500"
+              />
+              <button
+                type="submit"
+                disabled={loading}
+                className="flex items-center justify-center gap-2 w-full px-4 py-3 rounded-xl
+                           bg-brand-500 text-white font-medium text-sm
+                           hover:bg-brand-600 transition-colors disabled:opacity-50"
+              >
+                <Lock className="h-4 w-4" />
+                {loading ? "Signing in…" : "Sign in as Admin"}
+              </button>
+            </form>
+            <div className="text-center mt-4">
+              <button
+                onClick={() => setShowAdmin(false)}
+                className="text-xs text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors"
+              >
+                ← Back to Google sign in
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
