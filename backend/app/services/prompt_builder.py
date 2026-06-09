@@ -13,6 +13,7 @@ Design principles:
 
 from __future__ import annotations
 
+from app.schemas.rag import ConversationTurn
 from app.services.retriever import RetrievedChunk
 
 # Conservative character ceiling for the entire context section.
@@ -25,6 +26,10 @@ _NO_CONTEXT_MARKER = "(No relevant context found in the indexed codebase.)"
 # dominating the context while others are squeezed out).
 _MAX_CHARS_PER_CHUNK = 3_000
 
+# How many prior turns to include (each turn = 1 user + 1 assistant message).
+# Keep this low to avoid bloating the prompt; the most recent turns matter most.
+_MAX_HISTORY_TURNS = 5
+
 SYSTEM_PROMPT = """\
 You are an expert engineering assistant with access to your organisation's \
 source code, configuration, and documentation.
@@ -34,7 +39,9 @@ Rules you MUST follow:
 2. If the context does not contain enough information to answer, say exactly:
    "I could not find relevant information in the indexed codebase."
 3. Be precise and technical. Quote relevant code snippets where helpful.
-4. At the end of your answer cite the sources you used in this exact format:
+4. Maintain continuity with the conversation history provided — refer back to
+   previous questions and answers when relevant.
+5. At the end of your answer cite the sources you used in this exact format:
    Sources: <repo>/<file_path>:<start_line>-<end_line>
    (one source per line, only sources you actually used)
 """
@@ -42,22 +49,43 @@ Rules you MUST follow:
 
 class PromptBuilder:
     """
-    Builds the full prompt string from a question and a ranked list of
-    retrieved chunks.  Chunks are ordered by descending score (most relevant
-    first) and trimmed to fit inside `_CONTEXT_CHAR_BUDGET`.
+    Builds the full prompt string from a question, conversation history,
+    and a ranked list of retrieved chunks.
     """
 
-    def build(self, question: str, chunks: list[RetrievedChunk]) -> str:
+    def build(
+        self,
+        question: str,
+        chunks: list[RetrievedChunk],
+        history: list[ConversationTurn] | None = None,
+    ) -> str:
         context_section = self._build_context(chunks)
+        history_section = self._build_history(history or [])
         return (
             f"{SYSTEM_PROMPT}\n\n"
             f"{'=' * 60}\n"
             f"CONTEXT\n"
             f"{'=' * 60}\n"
             f"{context_section}\n"
-            f"{'=' * 60}\n\n"
+            f"{'=' * 60}\n"
+            f"{history_section}"
             f"QUESTION\n{question}"
         )
+
+    def _build_history(self, history: list[ConversationTurn]) -> str:
+        if not history:
+            return ""
+        # Keep only the most recent N turns (pairs of user+assistant)
+        # A "turn" here means individual messages, so take last 2*N messages
+        recent = history[-(2 * _MAX_HISTORY_TURNS):]
+        lines = ["CONVERSATION HISTORY\n" + "=" * 60]
+        for turn in recent:
+            prefix = "User" if turn.role == "user" else "Assistant"
+            # Truncate long assistant answers to avoid bloating prompt
+            content = turn.content if len(turn.content) <= 800 else turn.content[:800] + "… [truncated]"
+            lines.append(f"{prefix}: {content}")
+        lines.append("=" * 60 + "\n\n")
+        return "\n".join(lines) + "\n"
 
     def _build_context(self, chunks: list[RetrievedChunk]) -> str:
         if not chunks:

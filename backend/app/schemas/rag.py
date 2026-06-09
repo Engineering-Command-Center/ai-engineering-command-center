@@ -15,8 +15,20 @@ class RagSource(BaseModel):
     commit_sha: str | None
 
 
+class ConversationTurn(BaseModel):
+    """A single turn in the conversation history sent from the frontend."""
+
+    role: str  # "user" or "assistant"
+    content: str
+
+
 class RagRequest(BaseModel):
     question: str = Field(..., min_length=1, max_length=2048)
+    # Conversation history — last N turns so the LLM has context
+    history: list[ConversationTurn] = Field(
+        default_factory=list,
+        description="Previous turns in this session (user+assistant pairs).",
+    )
     # Optional filters forwarded to Qdrant
     repo_filter: str | None = Field(
         default=None,
@@ -42,3 +54,4 @@ class RagResponse(BaseModel):
     chunks_retrieved: int
     chunks_used: int
     model: str
+    cached: bool = False

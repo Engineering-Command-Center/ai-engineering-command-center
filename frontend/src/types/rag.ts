@@ -9,8 +9,14 @@ export interface RagSource {
   commit_sha: string | null;
 }
 
+export interface ConversationTurn {
+  role: "user" | "assistant";
+  content: string;
+}
+
 export interface RagRequest {
   question: string;
+  history?: ConversationTurn[];
   repo_filter?: string;
   language_filter?: string;
   top_k?: number;
@@ -24,4 +30,5 @@ export interface RagResponse {
   chunks_retrieved: number;
   chunks_used: number;
   model: string;
+  cached: boolean;
 }

@@ -22,6 +22,8 @@ class HealthResponse(BaseModel):
     environment: str
     services: list[ServiceStatus]
     token_usage: TokenUsage | None = None
+    last_indexed_at: str | None = None   # ISO timestamp of most recently indexed repo
+    indexed_repos: int = 0               # total repos that have been indexed at least once
 
 
 class ReadinessResponse(BaseModel):

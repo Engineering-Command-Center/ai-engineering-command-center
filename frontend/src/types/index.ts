@@ -19,6 +19,8 @@ export interface HealthResponse {
   environment: string;
   services: ServiceStatus[];
   token_usage: TokenUsage | null;
+  last_indexed_at: string | null;
+  indexed_repos: number;
 }
 
 export interface ChatMessage {
