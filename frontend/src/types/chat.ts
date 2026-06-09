@@ -11,6 +11,7 @@ export interface ChatMessage {
   chunksRetrieved?: number;
   model?: string;
   error?: boolean;
+  cached?: boolean;
 }
 
 export interface ChatSession {

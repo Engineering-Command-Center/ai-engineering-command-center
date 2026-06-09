@@ -9,6 +9,10 @@ import { EmptyState } from "@/components/chat/EmptyState";
 import { useChatHistory } from "@/hooks/useChatHistory";
 import { useRagChat } from "@/hooks/useRag";
 import type { ChatMessage } from "@/types/chat";
+import type { ConversationTurn } from "@/types/rag";
+
+// Max prior turns to send to the backend (each turn = 1 user + 1 assistant msg)
+const MAX_HISTORY_TURNS = 5;
 
 export default function ChatPage() {
   const {
@@ -57,8 +61,19 @@ export default function ChatPage() {
       updateMessages(sessionId, nextMessages);
 
       try {
+        // Build history from the current session messages (exclude error msgs)
+        // Take the last MAX_HISTORY_TURNS pairs (2 messages per turn)
+        const historyMessages = messages
+          .filter((m) => !m.error)
+          .slice(-(MAX_HISTORY_TURNS * 2));
+        const history: ConversationTurn[] = historyMessages.map((m) => ({
+          role: m.role,
+          content: m.content,
+        }));
+
         const result = await mutation.mutateAsync({
           question,
+          history,
           repo_filter: filter || undefined,
           top_k: 10,
         });
@@ -72,6 +87,7 @@ export default function ChatPage() {
           confidence: result.confidence,
           chunksRetrieved: result.chunks_retrieved,
           model: result.model,
+          cached: result.cached,
         };
 
         updateMessages(sessionId, [...nextMessages, assistantMsg]);

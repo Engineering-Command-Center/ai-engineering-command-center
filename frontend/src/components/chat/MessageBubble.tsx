@@ -53,6 +53,11 @@ export function MessageBubble({ message }: Props) {
                   {message.model}
                 </span>
               )}
+              {message.cached && (
+                <span className="text-[10px] text-emerald-500 font-mono px-2" title="Served from cache — no LLM tokens used">
+                  ⚡ cached
+                </span>
+              )}
             </div>
 
             {/* Sources */}

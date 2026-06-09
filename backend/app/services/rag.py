@@ -3,16 +3,20 @@ RagService — orchestrates the full Retrieval-Augmented Generation pipeline.
 
 Pipeline
 --------
-question
+question + history
+  → Cache check                   return cached response if same question seen recently
   → Retriever.retrieve()          embed question + Qdrant top-k search
-  → PromptBuilder.build()         assemble system + context + question
+  → PromptBuilder.build()         assemble system + history + context + question
   → Gemini generate_content()     call Gemini 2.5 Flash with full prompt
   → RagResponse                   answer + sources + confidence
+  → Cache store                   save response for future identical questions
 """
 
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import time
 
 from google import genai
 from google.genai import types
@@ -32,6 +36,46 @@ _NO_CONTEXT_ANSWER = (
     "I could not find relevant information in the indexed codebase. "
     "Make sure the relevant repositories have been indexed by running the indexer."
 )
+
+# ── Response cache ────────────────────────────────────────────────────────────
+# Simple in-memory LRU-style cache keyed on (question + filters).
+# History is intentionally excluded from the cache key — follow-up questions
+# in a conversation are usually unique enough to miss the cache anyway, and
+# caching by history would create an explosion of keys.
+_CACHE_TTL_SECONDS = 3600   # 1 hour
+_CACHE_MAX_SIZE = 200       # max entries; oldest evicted when full
+
+_cache: dict[str, tuple[float, RagResponse]] = {}  # key → (expires_at, response)
+
+
+def _cache_key(request: RagRequest) -> str:
+    raw = "|".join([
+        request.question.strip().lower(),
+        request.repo_filter or "",
+        request.language_filter or "",
+        str(request.top_k),
+        str(request.score_threshold),
+    ])
+    return hashlib.sha256(raw.encode()).hexdigest()
+
+
+def _cache_get(key: str) -> RagResponse | None:
+    entry = _cache.get(key)
+    if entry is None:
+        return None
+    expires_at, response = entry
+    if time.time() > expires_at:
+        _cache.pop(key, None)
+        return None
+    return response
+
+
+def _cache_set(key: str, response: RagResponse) -> None:
+    # Evict oldest entry if at capacity
+    if len(_cache) >= _CACHE_MAX_SIZE:
+        oldest_key = min(_cache, key=lambda k: _cache[k][0])
+        _cache.pop(oldest_key, None)
+    _cache[key] = (time.time() + _CACHE_TTL_SECONDS, response)
 
 
 class RagService:
@@ -58,7 +102,18 @@ class RagService:
         )
 
     async def ask(self, request: RagRequest) -> RagResponse:
-        # ── Step 1: Retrieve ──────────────────────────────────────────────────
+        # ── Step 1: Cache check ───────────────────────────────────────────────
+        # Only cache when there's no conversation history — follow-up questions
+        # depend on prior context and should always hit the LLM fresh.
+        use_cache = not request.history
+        cache_key = _cache_key(request)
+        if use_cache:
+            cached = _cache_get(cache_key)
+            if cached is not None:
+                logger.info("rag_cache_hit", question=request.question[:80])
+                return cached.model_copy(update={"cached": True})
+
+        # ── Step 2: Retrieve ──────────────────────────────────────────────────
         chunks: list[RetrievedChunk] = await self._retriever.retrieve(
             question=request.question,
             top_k=request.top_k,
@@ -69,7 +124,7 @@ class RagService:
 
         chunks_retrieved = len(chunks)
 
-        # ── Step 2: Guard — no usable context ────────────────────────────────
+        # ── Step 3: Guard — no usable context ────────────────────────────────
         if not chunks:
             logger.warning("rag_no_context", question=request.question[:120])
             return RagResponse(
@@ -81,12 +136,16 @@ class RagService:
                 model=self._settings.gemini_model,
             )
 
-        # ── Step 3: Build prompt ──────────────────────────────────────────────
-        prompt = self._prompt_builder.build(request.question, chunks)
+        # ── Step 4: Build prompt (with conversation history) ─────────────────
+        prompt = self._prompt_builder.build(
+            question=request.question,
+            chunks=chunks,
+            history=request.history or [],
+        )
 
-        # ── Step 4: Generate ─────────────────────────────────────────────────
+        # ── Step 5: Generate ─────────────────────────────────────────────────
         loop = asyncio.get_running_loop()
-        response = await loop.run_in_executor(
+        llm_response = await loop.run_in_executor(
             None,
             lambda: self._client.models.generate_content(
                 model=self._settings.gemini_model,
@@ -94,21 +153,22 @@ class RagService:
                 config=self._generate_config,
             ),
         )
-        answer_text: str = response.text
+        answer_text: str = llm_response.text
 
-        if response.usage_metadata:
-            prompt = response.usage_metadata.prompt_token_count or 0
-            completion = response.usage_metadata.candidates_token_count or 0
-            await self._tracker.record(prompt, completion)
+        if llm_response.usage_metadata:
+            prompt_tokens = llm_response.usage_metadata.prompt_token_count or 0
+            completion_tokens = llm_response.usage_metadata.candidates_token_count or 0
+            await self._tracker.record(prompt_tokens, completion_tokens)
 
         logger.info(
             "rag_generation_complete",
             chunks_used=chunks_retrieved,
             answer_chars=len(answer_text),
             model=self._settings.gemini_model,
+            history_turns=len(request.history),
         )
 
-        # ── Step 5: Build sources list ────────────────────────────────────────
+        # ── Step 6: Build sources list ────────────────────────────────────────
         sources = [
             RagSource(
                 repo=c.repo,
@@ -123,16 +183,21 @@ class RagService:
             for c in chunks
         ]
 
-        # ── Step 6: Confidence ────────────────────────────────────────────────
-        # Mean cosine similarity of retrieved chunks — a simple, interpretable
-        # proxy. Values above 0.75 indicate strong contextual relevance.
+        # ── Step 7: Confidence ────────────────────────────────────────────────
         confidence = round(sum(c.score for c in chunks) / len(chunks), 4)
 
-        return RagResponse(
+        result = RagResponse(
             answer=answer_text,
             sources=sources,
             confidence=confidence,
             chunks_retrieved=chunks_retrieved,
             chunks_used=chunks_retrieved,
             model=self._settings.gemini_model,
+            cached=False,
         )
+
+        # ── Step 8: Store in cache (only for stateless requests) ──────────────
+        if use_cache:
+            _cache_set(cache_key, result)
+
+        return result
