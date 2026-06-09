@@ -6,12 +6,14 @@ from fastapi.responses import RedirectResponse
 from app.core.config import get_settings
 from app.core.logging import get_logger
 from app.schemas.auth import UserInfo
+from app.schemas.auth import AdminLoginRequest
 from app.services.auth import (
     COOKIE_NAME,
     build_google_auth_url,
     create_jwt,
     decode_jwt,
     exchange_code_for_user,
+    verify_admin_credentials,
 )
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -80,6 +82,25 @@ async def callback(
     return redirect
 
 
+@router.post("/admin-login")
+async def admin_login(body: AdminLoginRequest, response: Response) -> UserInfo:
+    """Password-based login for admin — bypasses Google OAuth."""
+    user = verify_admin_credentials(settings, body.email, body.password)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid admin credentials")
+    token = create_jwt(settings, user)
+    response.set_cookie(
+        COOKIE_NAME,
+        token,
+        max_age=settings.jwt_expire_hours * 3600,
+        httponly=True,
+        samesite="lax",
+        secure=settings.is_production,
+    )
+    logger.info("admin_logged_in", email=user.email)
+    return user
+
+
 @router.get("/me", response_model=UserInfo)
 async def me(ecc_token: str | None = Cookie(default=None)) -> UserInfo:
     """Return the currently authenticated user from the JWT cookie."""
@@ -90,7 +111,7 @@ async def me(ecc_token: str | None = Cookie(default=None)) -> UserInfo:
     if not token_data:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
 
-    return UserInfo(email=token_data.sub, name=token_data.name, picture=token_data.picture)
+    return UserInfo(email=token_data.sub, name=token_data.name, picture=token_data.picture, is_admin=token_data.is_admin)
 
 
 @router.post("/logout")

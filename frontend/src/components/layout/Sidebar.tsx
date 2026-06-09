@@ -12,6 +12,7 @@ import {
   ScanSearch,
   BrainCircuit,
   LogOut,
+  ShieldCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
@@ -70,6 +71,20 @@ export function Sidebar({ user }: Props) {
             </Link>
           );
         })}
+        {user?.is_admin && (
+          <Link
+            href="/admin"
+            className={cn(
+              "flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
+              pathname.startsWith("/admin")
+                ? "bg-brand-500 text-white"
+                : "text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+            )}
+          >
+            <ShieldCheck className="h-4 w-4 shrink-0" />
+            Admin
+          </Link>
+        )}
       </nav>
 
       {/* User + controls */}

@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.api.v1.endpoints import auth, chat, github, health, knowledge, rag, repositories
+from app.api.v1.endpoints import admin, auth, chat, github, health, knowledge, rag, repositories
 
 api_router = APIRouter()
 
@@ -11,3 +11,4 @@ api_router.include_router(github.router)
 api_router.include_router(repositories.router)
 api_router.include_router(knowledge.router)
 api_router.include_router(rag.router)
+api_router.include_router(admin.router)

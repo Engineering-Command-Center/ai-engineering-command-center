@@ -76,6 +76,13 @@ class Settings(BaseSettings):
     # Index state file path — tracks last indexed commit SHA per repo
     index_state_path: str = "index_state.json"
 
+    # Admin credentials (configurable via env vars)
+    admin_email: str = "admin@hikeapp.com"
+    admin_password: str = "admin@1234"
+
+    # Usage tracking DB path
+    usage_db_path: str = "usage.db"
+
     # AWS
     aws_region: str = "ap-south-1"
 
