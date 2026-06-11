@@ -36,3 +36,4 @@ repos/
 # Runtime state
 index_state.json
 poetry.lock
+backend/usage.db

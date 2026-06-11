@@ -1,6 +1,6 @@
 import time
 
-from fastapi import APIRouter, Cookie
+from fastapi import APIRouter, Cookie, HTTPException
 
 from app.core.config import get_settings
 from app.core.dependencies import RagDep
@@ -22,22 +22,23 @@ async def rag_chat(
     rag: RagDep,
     ecc_token: str | None = Cookie(default=None),
 ) -> RagResponse:
+    if not ecc_token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    token_data = decode_jwt(settings, ecc_token)
+    if not token_data:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+
     start = time.monotonic()
     result = await rag.ask(request)
     response_ms = int((time.monotonic() - start) * 1000)
 
     # Log usage (best-effort — never fail the request if tracking errors)
     try:
-        email, name = "anonymous", "Anonymous"
-        if ecc_token:
-            token_data = decode_jwt(settings, ecc_token)
-            if token_data:
-                email = token_data.sub
-                name = token_data.name
+        email, name = token_data.sub, token_data.name
         tracker = get_usage_tracker(settings.usage_db_path)
         tracker.log(
-            email=email,
-            name=name,
+            email=email,  # type: ignore[arg-type]
+            name=name,  # type: ignore[arg-type]
             question=request.question,
             repo_filter=request.repo_filter,
             confidence=result.confidence,
