@@ -1,5 +1,6 @@
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Cookie, HTTPException, Query, status
 
+from app.core.config import get_settings
 from app.core.dependencies import RepoScannerDep
 from app.schemas.repository_scan import (
     RepositoryScanResponse,
@@ -7,8 +8,15 @@ from app.schemas.repository_scan import (
     SyncRequest,
     SyncResponse,
 )
+from app.services.auth import decode_jwt
 
 router = APIRouter(prefix="/repositories", tags=["repositories"])
+settings = get_settings()
+
+
+def _require_auth(ecc_token: str | None) -> None:
+    if not ecc_token or not decode_jwt(settings, ecc_token):
+        raise HTTPException(status_code=401, detail="Not authenticated")
 
 
 @router.get(
@@ -16,7 +24,10 @@ router = APIRouter(prefix="/repositories", tags=["repositories"])
     response_model=RepositoryScanResponse,
     summary="List all tracked repositories and their sync state",
 )
-async def list_repositories(scanner: RepoScannerDep) -> RepositoryScanResponse:
+async def list_repositories(
+    scanner: RepoScannerDep, ecc_token: str | None = Cookie(default=None)
+) -> RepositoryScanResponse:
+    _require_auth(ecc_token)
     """
     Returns the current in-memory registry state.
     Call POST /repositories/sync first if the registry is empty.
@@ -29,7 +40,8 @@ async def list_repositories(scanner: RepoScannerDep) -> RepositoryScanResponse:
     response_model=list[ScannedRepository],
     summary="Discover repositories from GitHub org (no clone/pull)",
 )
-async def discover_repositories(scanner: RepoScannerDep) -> list[ScannedRepository]:
+async def discover_repositories(scanner: RepoScannerDep, ecc_token: str | None = Cookie(default=None)) -> list[ScannedRepository]:
+    _require_auth(ecc_token)
     """
     Hits the GitHub API and populates the registry with repos matching the
     configured include/exclude patterns. Does NOT clone or pull.
@@ -46,7 +58,9 @@ async def discover_repositories(scanner: RepoScannerDep) -> list[ScannedReposito
 async def sync_repositories(
     request: SyncRequest,
     scanner: RepoScannerDep,
+    ecc_token: str | None = Cookie(default=None),
 ) -> SyncResponse:
+    _require_auth(ecc_token)
     """
     Discovers and syncs repositories.
 
@@ -69,7 +83,9 @@ async def sync_repositories_background(
     request: SyncRequest,
     background_tasks: BackgroundTasks,
     scanner: RepoScannerDep,
+    ecc_token: str | None = Cookie(default=None),
 ) -> dict[str, str]:
+    _require_auth(ecc_token)
     """
     Enqueues the sync job and returns immediately with HTTP 202.
     Poll GET /repositories to observe progress.
@@ -87,7 +103,8 @@ async def sync_repositories_background(
     response_model=ScannedRepository,
     summary="Get a single repository by name",
 )
-async def get_repository(repo_name: str, scanner: RepoScannerDep) -> ScannedRepository:
+async def get_repository(repo_name: str, scanner: RepoScannerDep, ecc_token: str | None = Cookie(default=None)) -> ScannedRepository:
+    _require_auth(ecc_token)
     repos = scanner.list_repositories()
     for repo in repos.repositories:
         if repo.name == repo_name:

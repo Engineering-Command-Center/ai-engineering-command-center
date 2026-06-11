@@ -16,7 +16,8 @@ so only files that actually changed since the last index run are re-embedded.
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import datetime, timezone
+UTC = timezone.utc
 from pathlib import Path
 
 from app.core.logging import get_logger

@@ -1,6 +1,8 @@
 import secrets
+import time
+from collections import defaultdict
 
-from fastapi import APIRouter, Cookie, HTTPException, Response
+from fastapi import APIRouter, Cookie, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
 
 from app.core.config import get_settings
@@ -21,6 +23,20 @@ logger = get_logger(__name__)
 settings = get_settings()
 
 STATE_COOKIE = "oauth_state"
+
+# Simple in-memory rate limiter for admin login: max 5 attempts per IP per 5 minutes
+_login_attempts: dict[str, list[float]] = defaultdict(list)
+_RATE_LIMIT_MAX = 5
+_RATE_LIMIT_WINDOW = 300  # seconds
+
+
+def _check_rate_limit(ip: str) -> None:
+    now = time.time()
+    attempts = [t for t in _login_attempts[ip] if now - t < _RATE_LIMIT_WINDOW]
+    _login_attempts[ip] = attempts
+    if len(attempts) >= _RATE_LIMIT_MAX:
+        raise HTTPException(status_code=429, detail="Too many login attempts. Try again later.")
+    _login_attempts[ip].append(now)
 
 
 @router.get("/login")
@@ -83,8 +99,9 @@ async def callback(
 
 
 @router.post("/admin-login")
-async def admin_login(body: AdminLoginRequest, response: Response) -> UserInfo:
+async def admin_login(body: AdminLoginRequest, request: Request, response: Response) -> UserInfo:
     """Password-based login for admin — bypasses Google OAuth."""
+    _check_rate_limit(request.client.host if request.client else "unknown")
     user = verify_admin_credentials(settings, body.email, body.password)
     if not user:
         raise HTTPException(status_code=401, detail="Invalid admin credentials")
