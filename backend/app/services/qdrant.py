@@ -12,6 +12,7 @@ from qdrant_client.models import (
     MatchValue,
     PayloadSchemaType,
     PointStruct,
+    QueryResponse,
     ScoredPoint,
     VectorParams,
 )
@@ -139,14 +140,14 @@ class QdrantService:
         if must_conditions:
             query_filter = Filter(must=must_conditions)
 
-        results = await self._client.search(
+        response: QueryResponse = await self._client.query_points(
             collection_name=self._collection,
-            query_vector=query_vector,
+            query=query_vector,
             limit=limit,
             query_filter=query_filter,
             with_payload=True,
         )
-        return results
+        return response.points
 
     async def get_collection_stats(self) -> dict[str, Any]:
         info = await self._client.get_collection(collection_name=self._collection)
